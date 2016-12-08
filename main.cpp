@@ -55,7 +55,7 @@ using namespace std;
 #include <sys/stat.h>
 #include <mqueue.h>
 #include <fstream>
-
+#include <math.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
@@ -72,7 +72,7 @@ Couldn't pass complex types like string through the Message queues
 #define MAX_MSGS 10
 
 typedef struct single_message_struct{
-  char response[8];
+  char response[RESP_NUM_SIZE];
 }single_message_struct;
 #define RCV_MSG_SIZE sizeof(single_message_struct);
 
@@ -89,6 +89,7 @@ struct account_template{
 };
 
 struct account_template accounts[MAX_MSGS];
+int accounts_size = 0;
 
 //Pthread variables
 pthread_t atm_thread;
@@ -105,6 +106,74 @@ pthread_mutex_t server_db_mutex;
 static struct mq_attr msgq_attr;
 static mqd_t atm_server_message = -1;
 static mqd_t server_db_message = -1;
+
+void serverPrint(string printInput, int clearFlag);
+
+void parseDatabase(struct account_template accountArray[]){
+  const char* databaseFile = "database.txt";
+
+  int numberOfLines = 0;
+
+  char tempACC[5];
+  //char tempACC[ACC_NUM_SIZE];
+  char tempPIN[3];
+  char tempAMOUNT[13];
+  string lineCounter;
+  int contextSwitch=0;
+
+  std::ifstream numFile("database.txt");
+
+  while (std::getline(numFile, lineCounter))
+      ++numberOfLines;
+  numFile.close();
+
+  accounts_size = numberOfLines;
+
+
+  std::ifstream myfile("database.txt");
+  for(int i=0; i<numberOfLines*3; i++){
+    if(contextSwitch == 0){
+      myfile.getline(tempACC,ACC_NUM_SIZE+1,',');
+      for(int k=0; k<ACC_NUM_SIZE;k++){
+        accounts[i/3].accNum[k] = tempACC[k];
+      }
+    }
+    else if(contextSwitch == 1){
+      myfile.getline(tempPIN,PIN_NUM_SIZE+1,',');
+      for(int k=0; k<PIN_NUM_SIZE;k++){
+        accounts[i/3].pinNum[k] = tempPIN[k];
+      }
+    }
+    else if(contextSwitch == 2){
+      myfile.getline(tempAMOUNT,13,'\n');
+      accounts[i/3].amount = atof(tempAMOUNT);
+
+    }
+    if(contextSwitch == 2){
+      contextSwitch = 0;
+    }
+    else{
+      contextSwitch++;
+    }
+  }
+  myfile.close();
+
+}
+
+void writeDatabase(){
+  ofstream database;
+  const char* databaseFile = "database.txt";
+  database.open(databaseFile, std::ofstream::out | std::ofstream::trunc);
+  database.precision(13);
+  for(int i=0; i<accounts_size; i++){
+    string tempACC = string(accounts[i].accNum,ACC_NUM_SIZE);
+    string tempPIN = string(accounts[i].pinNum,PIN_NUM_SIZE);
+    database << tempACC << "," << tempPIN << "," << accounts[i].amount << endl;
+
+  }
+
+  database.close();
+}
 
 void serverPrint(string printInput, int clearFlag){
   fstream serverLog;
@@ -135,21 +204,15 @@ void dbPrint(string printInput, int clearFlag){
 void* server(void* args){
   //Clear the log and output the starting string
   serverPrint("Server is running.",1);
+  parseDatabase(accounts);
+  writeDatabase();
   //INIT VARS
-  const char* databaseFile = "database.txt";
+
   gen_message_struct receive_message;
   single_message_struct send_message;
   char rvcd_account_num[ACC_NUM_SIZE];
 
   int databaseInput = -1;
-
-  FILE* database;
-  database = fopen(databaseFile,"rw");
-  //Check Condition of FILE
-  if(database == NULL){
-    serverPrint("Database file not found",0);
-    exit(0);
-  }
 
   while(1){
     databaseInput = mq_receive(atm_server_message, (char*) &receive_message,
@@ -160,23 +223,7 @@ void* server(void* args){
     }
 
     serverPrint("Checking if the message is valid",0);
-    char tempACC;
-    char selectedPin[PIN_NUM_SIZE];
-    int ch;
-    int countField = 0;
-    int countLine = 0;
-    int offset = 0;
-    int invalid = 0;
 
-    //Parse the data file (THERE IS A BETTER WAY IM SURE)
-    //3 Layered for loop
-    while (EOF != (ch=getc(database))){
-      while(ch != ','){
-        accounts[countLine].accNum[countField - offset] = ch;
-      }
-
-
-    }
 
   }
 }
