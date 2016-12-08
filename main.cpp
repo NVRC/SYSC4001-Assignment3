@@ -82,6 +82,13 @@ typedef struct gen_message_struct{
 }gen_message_struct;
 #define SEND_MSG_SIZE sizeof(gen_message_struct);
 
+typedef struct update_message_struct{
+  char accountNum[ACC_NUM_SIZE];
+  char pin[PIN_NUM_SIZE];
+  float amount;
+}update_message_struct;
+#define UPDATE_MSG_SIZE sizeof(update_message_struct);
+
 struct account_template{
   char accNum[ACC_NUM_SIZE];
   char pinNum[PIN_NUM_SIZE];
@@ -101,11 +108,15 @@ pthread_mutex_t server_db_mutex;
 
 #define ATM_SERVER_NAME "/pin_msg"
 #define SERVER_DB_NAME "/db_msg"
+#define UPDATE_NAME "/up_msg"
 
 //Initialize static message variables
-static struct mq_attr msgq_attr;
+static struct mq_attr msgq_attr_send;
+static struct mq_attr msgq_attr_rcv;
+static struct mq_attr msgq_attr_update;
 static mqd_t atm_server_message = -1;
 static mqd_t server_db_message = -1;
+static mqd_t update_message = -1;
 
 void serverPrint(string printInput, int clearFlag);
 
@@ -223,7 +234,44 @@ void* server(void* args){
     }
 
     serverPrint("Checking if the message is valid",0);
+    //get the received data
+    char enteredPin[PIN_NUM_SIZE] = (char*) &receive_message.pin;
+    char enteredAccount[ACC_NUM_SIZE] = (char*) &receive_message.accountNum;
 
+    //decodes the pin
+    enteredPin[2] =  enteredPin[2]-1;
+    //sendMsg.accountNum[i] = accountNumber[i];
+    //check array of accounts for the account.
+
+    //parse the accounts
+    for(int i = 0; i < MAX_MSGS; i++){
+      //check if account exists
+      if(accounts[i].accNum == enteredAccount[]){
+        //check if accounts pin is correct
+        currentPin = accounts[i].pinNum;
+        currentPin[2] = currentPin[2]-1;
+
+
+        if(currentPin[] == enteredPin[]){
+          //Encode message packet with input from dbeditor
+          for(int i=0; i<ACC_NUM_SIZE; i++){
+            updaterMsg.accountNum[i] = accountNumber[i];
+          }
+          for(int i=0; i<PIN_NUM_SIZE; i++){
+              updaterMsg.pin[i] = pin[i];
+
+          }
+          //send msg to atm so atm can update the account amount
+          mq_send(atm_server_message, (const char*) &updaterMsg, sizeof(updaterMsg), msg_prio);
+        }
+      }else{
+        //add account to the dataBase
+        accounts_size ++;
+        accounts[accounts_size].accNum = enteredAccount;
+        accounts[accounts_size].accPin = enteredPin;
+
+      }
+    }
 
   }
 }
@@ -231,6 +279,51 @@ void* server(void* args){
 void* db_editor(void* args){
   //Clear the log and output the starting string
   dbPrint("Database Editor is running.",1);
+
+    //create an update msg for the atm
+    update_message_struct updateMsg;
+
+    unsigned int msg_prio = 0;
+    string accountNumber;
+    string pin;
+    float balance;
+
+    while(accountNumber.size()!=5){
+          cout << "Enter Account Number(5 Digits) or 'quit' to exit: ";
+          cin >> accountNumber;
+          cout << "You entered: " + accountNumber + "\n";
+          if(accountNumber == "quit"){
+            cout << "";
+            exit(EXIT_FAILURE);
+          }
+          if(accountNumber.size()!=5){
+            cout << "Invalid Account format \n";
+          }
+        }
+        //Get PIN number
+        while(pin.size()!=3){
+          cout << "Enter PIN: ";
+          cin >> pin;
+          cout << "You entered: " + pin + "\n";
+          if(pin.size()!=3){
+            cout << "Invalid PIN Format \n";
+          }
+        }
+
+        cout << "Enter Amount to Withdraw: \n";
+        cin >> balance;
+        cout << "You entered: " << balance << "\n";
+        //Encode the input to the message packet
+        for(int i=0; i<ACC_NUM_SIZE; i++){
+          updateMsg.accountNum[i] = accountNumber[i];
+        }
+        for(int i=0; i<PIN_NUM_SIZE; i++){
+          updateMsg.pin[i] = pin[i];
+        }
+        updateMsg.amount = balance;
+
+    //send msg
+    mq_send(update_message, (const char*) &updateMsg, sizeof(updateMsg), msg_prio);
 }
 
 
@@ -306,17 +399,26 @@ int main(int args, char const *argv[]){
   pthread_attr_t attr;
 
   //Initialize Message Queue VARS
-  msgq_attr.mq_maxmsg = MAX_MSGS;
-  msgq_attr.mq_msgsize = (size_t) SEND_MSG_SIZE;
+  msgq_attr_send.mq_maxmsg = MAX_MSGS;
+  msgq_attr_send.mq_msgsize = (size_t) SEND_MSG_SIZE;
+  msgq_attr_rcv.mq_maxmsg = MAX_MSGS;
+  msgq_attr_rcv.mq_msgsize = (size_t) RCV_MSG_SIZE;
+  msgq_attr_update.mq_maxmsg = MAX_MSGS;
+  msgq_attr_update.mq_msgsize = (size_t) UPDATE_MSG_SIZE;
   //Initialize Message Queues
-  atm_server_message = mq_open(ATM_SERVER_NAME, O_CREAT | O_RDWR, 0666, &msgq_attr);
-  server_db_message = mq_open(SERVER_DB_NAME, O_CREAT | O_RDWR, 0666, &msgq_attr);
+  atm_server_message = mq_open(ATM_SERVER_NAME, O_CREAT | O_RDWR, 0666, &msgq_attr_send);
+  server_db_message = mq_open(SERVER_DB_NAME, O_CREAT | O_RDWR, 0666, &msgq_attr_rcv);
+  update_message = mq_open(UPDATE_NAME, O_CREAT | O_RDWR, 0666, &msgq_attr_update);
+
   //Check if MSG Queue were initialized
   if(atm_server_message == -1){
     cout << "ERROR: ATM<->SERVER message queue failed to Initialize.\n";
   }
   if(server_db_message == -1){
     cout << "ERROR: SERVER<->DB message queue failed to Initialize.\n";
+  }
+  if(update_message == -1){
+    cout << "ERROR: DB<->SERVER message queue failed to Initialize.\n";
   }
 
   //Initialize Threads
