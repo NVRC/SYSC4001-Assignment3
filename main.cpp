@@ -39,15 +39,20 @@ Couldn't pass complex types like string through the Message queues
 */
 #define ACC_NUM_SIZE 5
 #define PIN_NUM_SIZE 3
+#define RESP_NUM_SIZE 8
 //Maximum number of messages in the message queue
 #define MAX_MSGS 10;
 
+typedef struct rcv_message_struct{
+  char response[8];
+}rcv_message_struct;
+#define RCV_MSG_SIZE sizeof(rcv_message_struct);
 
-typedef struct general_message_struct{
+typedef struct send_message_struct{
   char accountNum[ACC_NUM_SIZE];
   char pin[PIN_NUM_SIZE];
-}general_message_struct;
-#define GEN_MSG_STRUCT_SIZE sizeof(general_message_struct);
+}send_message_struct;
+#define SEND_MSG_SIZE sizeof(send_message_struct);
 
 //Pthread variables
 pthread_t atm_thread;
@@ -79,11 +84,22 @@ void dbPrint(string printInput){
   dbLog.close();
 }
 
+void* server(void* args){
+  serverPrint("Server is running.");
+  while(1){
+
+  }
+}
+
+void* db_editor(void* args){
+
+}
+
 
 void* atm(void* args){
 
-  general_message_struct sendMsg;
-  general_message_struct rcvMsg;
+  send_message_struct sendMsg;
+  send_message_struct rcvMsg;
   unsigned int msg_prio = 0;
 
   int timesAccessed = 0;
@@ -94,60 +110,66 @@ void* atm(void* args){
 
   //Get account Number
   cout << "ATM is executing: \n";
-  while(accountNumber.size()!=5){
-    cout << "Enter Account Number(5 Digits) or 'quit' to exit: ";
-    cin >> accountNumber;
-    cout << "You entered: " + accountNumber + "\n";
-    if(accountNumber == "quit"){
-      cout << "";
-      exit(EXIT_FAILURE);
+  while(timesAccessed < 3){
+    while(accountNumber.size()!=5){
+      cout << "Enter Account Number(5 Digits) or 'quit' to exit: ";
+      cin >> accountNumber;
+      cout << "You entered: " + accountNumber + "\n";
+      if(accountNumber == "quit"){
+        cout << "";
+        exit(EXIT_FAILURE);
+      }
+      if(accountNumber.size()!=5){
+        cout << "Invalid Account format \n";
+      }
     }
-    if(accountNumber.size()!=5){
-      cout << "Invalid Account format \n";
+    //Get PIN number
+    while(pin.size()!=3){
+      cout << "Enter PIN: ";
+      cin >> pin;
+      cout << "You entered: " + pin + "\n";
+      if(pin.size()!=3){
+        cout << "Invalid PIN Format \n";
+      }
     }
-  }
-  //Get PIN number
-  while(pin.size()!=3){
-    cout << "Enter PIN: ";
-    cin >> pin;
-    cout << "You entered: " + pin + "\n";
-    if(pin.size()!=3){
-      cout << "Invalid PIN Format \n";
+    //Encode the input to the message packet
+    for(int i=0; i<ACC_NUM_SIZE; i++){
+      sendMsg.accountNum[i] = accountNumber[i];
     }
-  }
-  //Encode the input to the message packet
-  for(int i=0; i<ACC_NUM_SIZE; i++){
-    sendMsg.accountNum[i] = accountNumber[i];
-  }
-  for(int i=0; i<PIN_NUM_SIZE; i++){
-    sendMsg.pin[i] = pin[i];
-  }
+    for(int i=0; i<PIN_NUM_SIZE; i++){
+      sendMsg.pin[i] = pin[i];
+    }
 
 
-  //Send genMsg
-  atmStatus = mq_send(atm_server_message, (const char*) &sendMsg, sizeof(sendMsg), msg_prio);
-  //Check the send status
-  if(atmStatus < 0){
-    cout << "Sending a message via the message queue failed.";
-    exit(0);
-  }
-  //Receive genMsg
-  atmStatus = mq_receive(server_db_message, (char*) &rcvMsg, sizeof(rcvMsg), NULL);
-  //Check the receive status
-  if(atmStatus < 0){
-    cout << "Receiving a message via the message queue failed ";
-    exit(0);
-  }
+    //Send genMsg
+    atmStatus = mq_send(atm_server_message, (const char*) &sendMsg, sizeof(sendMsg), msg_prio);
+    //Check the send status
+    if(atmStatus < 0){
+      cout << "Sending a message via the message queue failed.";
+      exit(0);
+    }
+    //Receive genMsg
+    atmStatus = mq_receive(server_db_message, (char*) &rcvMsg, sizeof(rcvMsg), NULL);
+    //Check the receive status
+    if(atmStatus < 0){
+      cout << "Receiving a message via the message queue failed ";
+      exit(0);
+    }
+}
+//3 Invalid Tries
+cout << "Account is blocked.";
 
 }
 
 int main(int args, char const *argv[]){
 
+  //Thread VARS
+  long start_condition = 0;
   pthread_attr_t attr;
 
   //Initialize Message Queue VARS
   msgq_attr.mq_maxmsg = MAX_MSGS;
-  msgq_attr.mq_msgsize = (size_t) GEN_MSG_STRUCT_SIZE;
+  msgq_attr.mq_msgsize = (size_t) SEND_MSG_SIZE;
   //Initialize Message Queues
   atm_server_message = mq_open(ATM_SERVER_NAME, O_CREAT | O_RDWR, 0666, &msgq_attr);
   server_db_message = mq_open(SERVER_DB_NAME, O_CREAT | O_RDWR, 0666, &msgq_attr);
@@ -160,6 +182,14 @@ int main(int args, char const *argv[]){
   }
 
   //Initialize Threads
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr,1024*1024);
+  pthread_create(&atm_thread, NULL, atm, (void*) start_condition);
+  pthread_create(&server_thread, NULL, server, (void*) start_condition);
+  pthread_create(&db_editor_thread, NULL, db_editor, (void*) start_condition);
 
-
+  //Run Threads
+  pthread_join(atm_thread, NULL);
+  pthread_join(server_thread, NULL);
+  pthread_join(db_editor_thread, NULL);
 }
