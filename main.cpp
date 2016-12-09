@@ -311,7 +311,7 @@ void* server(void* args){
     }
 
     databaseInput = 10;
-    int typeFlag;
+    int typeFlag = 100;
     rcv_message_struct atmResponse;
     withdraw_message_struct atmFloat;
     //receive further atm commands
@@ -327,11 +327,24 @@ void* server(void* args){
     }
 
     if(typeFlag == 0){
-      float tempFloat = accounts[index].amount;
+
+      atmFloat.amount = accounts[index].amount;
       serverPrint("Sending amount of money in selected account",0);
-      
+      mq_send(atm_server_message, (char*) &atmFloat, sizeof(atmFloat),0);
     }
     else if(typeFlag == 1){
+      if(accounts[index].amount >= atmFloat.amount){
+        accounts[index].amount = accounts[index].amount - atmFloat.amount;
+        memcpy(send_message.response, "Enough", strlen("Enough"));
+        //send msg to atm so atm can update the account amount
+        mq_send(atm_server_message, (const char*) &send_message, sizeof(send_message), 0);
+      }
+      else{
+        memcpy(send_message.response, "NOT OK", strlen("NOT OK"));
+        //send msg to atm so atm can update the account amount
+        mq_send(atm_server_message, (const char*) &send_message, sizeof(send_message), 0);
+      }
+
 
     }
 
@@ -445,7 +458,7 @@ void* atm(void* args){
     atmInput = -1;
     //Receive genMsg
     cout << "Waiting for the server response.";
-    atmInput = mq_receive(server_db_message, (char*) &rcvMsg, sizeof(rcvMsg), 0);
+    atmInput = mq_receive(atm_server_message, (char*) &rcvMsg, sizeof(rcvMsg), 0);
     //Check the receive status
     if(atmInput == -1){
       cout << "Receiving a message via the message queue failed ";
@@ -460,7 +473,7 @@ void* atm(void* args){
     rcv_message_struct rcvCon;
     float withdrawAmount;
 
-    if(rcvMsg.response == "OK"){
+    if(strncmp(rcvMsg.response, "OK",2) == 0){
       cout << "Select an option (withdraw) or (display): ";
       cin >> inputText;
       if(inputText == "withdraw"){
@@ -476,7 +489,7 @@ void* atm(void* args){
         }
         atmInput = -1;
 
-        atmInput = mq_receive(server_db_message,(char*) &rcvCon, sizeof(rcvCon),0);
+        atmInput = mq_receive(atm_server_message,(char*) &rcvCon, sizeof(rcvCon),0);
         if(atmInput == -1){
           cout << "Receive failed.";
           exit(0);
@@ -486,12 +499,19 @@ void* atm(void* args){
 
       }
       else if(inputText == "display"){
-
+        atmInput = -1;
+        atmInput = mq_receive(atm_server_message,(char*) &cmdMsg, sizeof(cmdMsg),0);
+        if(atmInput == -1){
+          cout << "Receive failed.";
+          exit(0);
+        }
+        cout << cmdMsg.amount;
       }
 
     }
-    else if(rcvMsg.response == "NOT OK"){
+    else if(strncmp(rcvMsg.response, "NOT OK",5) == 0){
       timesAccessed++;
+      cout << "Account not found";
     }
     else{
       cout << "ERROR: Unexpected Response.";
@@ -537,10 +557,10 @@ int main(int args, char const *argv[]){
   pthread_attr_setstacksize(&attr,1024*1024);
   pthread_create(&atm_thread, NULL, atm, (void*) start_condition);
   pthread_create(&server_thread, NULL, server, (void*) start_condition);
-  pthread_create(&db_editor_thread, NULL, db_editor, (void*) start_condition);
+  //pthread_create(&db_editor_thread, NULL, db_editor, (void*) start_condition);
 
   //Run Threads
   pthread_join(atm_thread, NULL);
   pthread_join(server_thread, NULL);
-  pthread_join(db_editor_thread, NULL);
+  //pthread_join(db_editor_thread, NULL);
 }
