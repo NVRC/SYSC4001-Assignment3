@@ -61,6 +61,7 @@ using namespace std;
 #include <sys/msg.h>
 #include <exception>
 #include <memory>
+#include <cstring>
 
 /*
 Couldn't pass complex types like string through the Message queues
@@ -71,10 +72,10 @@ Couldn't pass complex types like string through the Message queues
 //Maximum number of messages in the message queue
 #define MAX_MSGS 10
 
-typedef struct single_message_struct{
+typedef struct rcv_message_struct{
   char response[RESP_NUM_SIZE];
 }single_message_struct;
-#define RCV_MSG_SIZE sizeof(single_message_struct);
+#define RCV_MSG_SIZE sizeof(rcv_message_struct);
 
 typedef struct gen_message_struct{
   char accountNum[ACC_NUM_SIZE];
@@ -220,14 +221,35 @@ void* server(void* args){
   //INIT VARS
 
   gen_message_struct receive_message;
-  single_message_struct send_message;
+  update_message_struct updaterMsg;
+  rcv_message_struct send_message;
   char rvcd_account_num[ACC_NUM_SIZE];
+  char currentPin[PIN_NUM_SIZE];
 
   int databaseInput = -1;
 
+
   while(1){
+
+      databaseInput = msgrcv(update_message,(char*) &updaterMsg,
+        sizeof(updaterMsg),0, IPC_NOWAIT);
+      if(databaseInput > -1){
+        dbPrint("Added a new account to the DB \n",0);
+        //add account to the dataBase
+        accounts_size ++;
+        for(int i=0; i<ACC_NUM_SIZE; i++){
+          accounts[accounts_size].accNum[i] = updaterMsg.accountNum[i];
+        }
+        for(int i=0; i<PIN_NUM_SIZE; i++){
+          accounts[accounts_size].pinNum[i] = updaterMsg.pin[i];
+        }
+        accounts[accounts_size].amount = updaterMsg.amount;
+      }
+
+
+
     databaseInput = mq_receive(atm_server_message, (char*) &receive_message,
-      sizeof(receive_message), NULL);
+      sizeof(receive_message), 0);
     //Check the receive status
     if(databaseInput == -1){
       serverPrint("Message queue failed to deliver the message",0);
@@ -235,8 +257,16 @@ void* server(void* args){
 
     serverPrint("Checking if the message is valid",0);
     //get the received data
-    char enteredPin[PIN_NUM_SIZE] = (char*) &receive_message.pin;
-    char enteredAccount[ACC_NUM_SIZE] = (char*) &receive_message.accountNum;
+    char enteredPin[PIN_NUM_SIZE];
+    for(int i=0; i<PIN_NUM_SIZE; i++){
+      enteredPin[i] = receive_message.pin[i];
+    }
+
+    char enteredAccount[ACC_NUM_SIZE];
+    for(int i=0; i<PIN_NUM_SIZE; i++){
+      enteredAccount[i] = receive_message.accountNum[i];
+    }
+
 
     //decodes the pin
     enteredPin[2] =  enteredPin[2]-1;
@@ -246,32 +276,36 @@ void* server(void* args){
     //parse the accounts
     for(int i = 0; i < MAX_MSGS; i++){
       //check if account exists
-      if(accounts[i].accNum == enteredAccount[]){
+      if(accounts[i].accNum == enteredAccount){
         //check if accounts pin is correct
-        currentPin = accounts[i].pinNum;
+        for(int i=0; i<PIN_NUM_SIZE;i++){
+          currentPin[i] = accounts[i].pinNum[i];
+        }
         currentPin[2] = currentPin[2]-1;
 
+        if(currentPin == enteredPin){
 
-        if(currentPin[] == enteredPin[]){
-          //Encode message packet with input from dbeditor
-          for(int i=0; i<ACC_NUM_SIZE; i++){
-            updaterMsg.accountNum[i] = accountNumber[i];
-          }
-          for(int i=0; i<PIN_NUM_SIZE; i++){
-              updaterMsg.pin[i] = pin[i];
-
-          }
+          memcpy(send_message.response, "OK", strlen("OK"));
           //send msg to atm so atm can update the account amount
-          mq_send(atm_server_message, (const char*) &updaterMsg, sizeof(updaterMsg), msg_prio);
+          mq_send(atm_server_message, (const char*) &send_message, sizeof(send_message), 0);
+          break;
         }
-      }else{
-        //add account to the dataBase
-        accounts_size ++;
-        accounts[accounts_size].accNum = enteredAccount;
-        accounts[accounts_size].accPin = enteredPin;
-
+        else{
+          memcpy(send_message.response, "NOT OK", strlen("NOT OK"));
+          //send msg to atm so atm can update the account amount
+          mq_send(atm_server_message, (const char*) &send_message, sizeof(send_message), 0);
+          break;
+        }
       }
     }
+
+
+
+
+
+
+
+
 
   }
 }
@@ -330,7 +364,7 @@ void* db_editor(void* args){
 void* atm(void* args){
 
   gen_message_struct sendMsg;
-  gen_message_struct rcvMsg;
+  rcv_message_struct rcvMsg;
   unsigned int msg_prio = 0;
 
   int timesAccessed = 0;
@@ -380,12 +414,27 @@ void* atm(void* args){
       exit(0);
     }
     //Receive genMsg
-    atmInput = mq_receive(server_db_message, (char*) &rcvMsg, sizeof(rcvMsg), NULL);
+    cout << "Waiting for the server response.";
+    atmInput = mq_receive(server_db_message, (char*) &rcvMsg, sizeof(rcvMsg), 0);
     //Check the receive status
     if(atmInput == -1){
       cout << "Receiving a message via the message queue failed ";
       exit(0);
     }
+    cout << "Received a response.";
+
+    if(rcvMsg.response == "OK"){
+      cout << "Select an option (withdraw) or (display):";
+
+      
+    }
+    else if(rcvMsg.response == "NOT OK"){
+
+    }
+    else{
+
+    }
+
 }
 //3 Invalid Tries
 cout << "Account is blocked.";
