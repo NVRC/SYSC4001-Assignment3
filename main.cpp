@@ -90,6 +90,13 @@ typedef struct update_message_struct{
 }update_message_struct;
 #define UPDATE_MSG_SIZE sizeof(update_message_struct);
 
+typedef struct withdraw_message_struct{
+  float amount;
+}withdraw_message_struct;
+#define WITHDRAW_MSG_SIZE sizeof(withdraw_message_struct);
+
+
+
 struct account_template{
   char accNum[ACC_NUM_SIZE];
   char pinNum[PIN_NUM_SIZE];
@@ -228,6 +235,9 @@ void* server(void* args){
 
   int databaseInput = -1;
 
+  //Store the location of the required account
+  int index;
+
 
   while(1){
 
@@ -277,6 +287,7 @@ void* server(void* args){
     for(int i = 0; i < MAX_MSGS; i++){
       //check if account exists
       if(accounts[i].accNum == enteredAccount){
+        index = i;
         //check if accounts pin is correct
         for(int i=0; i<PIN_NUM_SIZE;i++){
           currentPin[i] = accounts[i].pinNum[i];
@@ -299,12 +310,30 @@ void* server(void* args){
       }
     }
 
+    databaseInput = 10;
+    int typeFlag;
+    rcv_message_struct atmResponse;
+    withdraw_message_struct atmFloat;
+    //receive further atm commands
+    while(databaseInput == 10){
+      databaseInput = msgrcv(atm_server_message,(char*) &atmResponse,
+        sizeof(atmResponse),0, IPC_NOWAIT);
+        typeFlag = 0;
+      if(databaseInput == 10){
+        databaseInput = msgrcv(atm_server_message,(char*) &atmFloat,
+          sizeof(atmFloat),0, IPC_NOWAIT);
+        typeFlag = 1;
+      }
+    }
 
+    if(typeFlag == 0){
+      float tempFloat = accounts[index].amount;
+      serverPrint("Sending amount of money in selected account",0);
+      
+    }
+    else if(typeFlag == 1){
 
-
-
-
-
+    }
 
 
   }
@@ -413,6 +442,7 @@ void* atm(void* args){
       cout << "Sending a message via the message queue failed.";
       exit(0);
     }
+    atmInput = -1;
     //Receive genMsg
     cout << "Waiting for the server response.";
     atmInput = mq_receive(server_db_message, (char*) &rcvMsg, sizeof(rcvMsg), 0);
@@ -421,18 +451,50 @@ void* atm(void* args){
       cout << "Receiving a message via the message queue failed ";
       exit(0);
     }
+    atmInput = -1;
     cout << "Received a response.";
 
-    if(rcvMsg.response == "OK"){
-      cout << "Select an option (withdraw) or (display):";
+    //Local variable
+    string inputText;
+    withdraw_message_struct cmdMsg;
+    rcv_message_struct rcvCon;
+    float withdrawAmount;
 
-      
+    if(rcvMsg.response == "OK"){
+      cout << "Select an option (withdraw) or (display): ";
+      cin >> inputText;
+      if(inputText == "withdraw"){
+        cout << "How much would you like to withdraw?: ";
+        cin >> withdrawAmount;
+        cout <<  "Sending withdraw message.";
+
+        cmdMsg.amount = withdrawAmount;
+        atmInput = mq_send(atm_server_message,(const char*) &cmdMsg,sizeof(cmdMsg),msg_prio);
+        if(atmInput == -1){
+          cout << "Sending the request failed.";
+          exit(0);
+        }
+        atmInput = -1;
+
+        atmInput = mq_receive(server_db_message,(char*) &rcvCon, sizeof(rcvCon),0);
+        if(atmInput == -1){
+          cout << "Receive failed.";
+          exit(0);
+        }
+
+        cout << rcvCon.response;
+
+      }
+      else if(inputText == "display"){
+
+      }
+
     }
     else if(rcvMsg.response == "NOT OK"){
-
+      timesAccessed++;
     }
     else{
-
+      cout << "ERROR: Unexpected Response.";
     }
 
 }
