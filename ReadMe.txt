@@ -44,8 +44,8 @@ TO RUN THE CODE:
 	1) Find the directory the project files are located
 	2) Type the following to run the program 
 
-		gcc -o main main.c 	to compile  
-		./main 			to run
+		g++ -o main main.cpp -pthread -lrt -Wall	to compile  
+		./main 						to run
 		
 	3) This will launch the program and two consoles will appear. You can use these consoles to perform changes to 
 	to the database. The atm console can perform withdrawls and request funds. The dbeditor console is able to update 
